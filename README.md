@@ -45,6 +45,10 @@ Engineered with a strict **Zero-Resource Background Policy**: no heavy polling d
 - Configures latency-optimized I/O schedulers (e.g. `bfq` / `mq-deadline`) for NVMe and SSD drives.
 - Eliminates desktop micro-stutter during background file operations and heavy package upgrades.
 
+### 5. 🔬 Experimental: ASUS ELAN7001 Fingerprint Reader
+- Complete hardware enablement guide, SPI udev rules, buffer configurations, and SIGFM patch for **ASUS ELAN SPI sensors** (`04f3:3104` / `ELAN7001` / `eFSA80SC`).
+- 📖 [Read the complete Fingerprint Guide & Patch Walkthrough](experimental/fingerprint/README.md)
+
 ---
 
 ## 📂 Repository Structure
@@ -58,6 +62,8 @@ linux-optimization/
 ├── assets/                 # UI screenshots and documentation images
 │   ├── fan_control.png
 │   └── battery_limiter.png
+├── experimental/           # Experimental hardware modules & research
+│   └── fingerprint/        # ASUS ELAN7001 / 04f3:3104 SPI driver & SIGFM patch
 ├── bin/                    # Core executable utilities
 │   ├── asus-fan-gui        # Thermal monitoring and profile switcher (GTK3)
 │   ├── bat-limit-gui       # Battery threshold configuration GUI (GTK3)
