@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=ASUS Cooling & Fan Control
+Comment=Monitor CPU temperature, fan RPM, and switch thermal cooling profiles
+Exec=/usr/local/bin/asus-fan-gui
+Icon=preferences-system-power
+Terminal=false
+Type=Application
+Categories=Settings;HardwareSettings;
+Keywords=fan;thermal;cooling;asus;temperature;rpm;overboost;performance;
+StartupNotify=true

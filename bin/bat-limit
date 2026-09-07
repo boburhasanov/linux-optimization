@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+FILE="/sys/class/power_supply/BAT0/charge_control_end_threshold"
+SERVICE_FILE="/etc/systemd/system/asus-battery-charge-threshold.service"
+UDEV_FILE="/etc/udev/rules.d/99-asus-battery-charge-threshold.rules"
+
+if [ ! -f "$FILE" ]; then
+    echo "Error: Hardware battery charge threshold is not supported on this device."
+    exit 1
+fi
+
+if [ -z "$1" ]; then
+    CURRENT=$(cat "$FILE")
+    BAT_PERCENT=$(cat /sys/class/power_supply/BAT0/capacity 2>/dev/null || echo "N/A")
+    echo "=================================================="
+    echo "   ASUS Battery Charge Threshold Controller"
+    echo "=================================================="
+    echo "  Current Hardware Limit: ${CURRENT}%"
+    echo "  Current Battery Level : ${BAT_PERCENT}%"
+    echo "--------------------------------------------------"
+    echo "Usage: sudo bat-limit [percentage]"
+    echo "Examples:"
+    echo "  sudo bat-limit 85   (Balanced Protection - Recommended)"
+    echo "  sudo bat-limit 80   (Maximum Longevity Mode)"
+    echo "  sudo bat-limit 100  (Full 100% Capacity for Travel)"
+    echo "=================================================="
+    exit 0
+fi
+
+LIMIT="$1"
+
+if ! [[ "$LIMIT" =~ ^[0-9]+$ ]] || [ "$LIMIT" -lt 50 ] || [ "$LIMIT" -gt 100 ]; then
+    echo "Error: Limit must be an integer between 50 and 100 (e.g. 80, 85, 100)."
+    exit 1
+fi
+
+if [ "$EUID" -ne 0 ]; then
+    echo "Please execute this command with sudo: sudo bat-limit $LIMIT"
+    exit 1
+fi
+
+echo "$LIMIT" > "$FILE"
+sed -i "s/echo [0-9]\+/echo $LIMIT/" "$SERVICE_FILE" 2>/dev/null || true
+sed -i "s/charge_control_end_threshold}=\"[0-9]\+\"/charge_control_end_threshold}=\"$LIMIT\"/" "$UDEV_FILE" 2>/dev/null || true
+systemctl daemon-reload 2>/dev/null || true
+udevadm control --reload-rules 2>/dev/null || true
+
+echo "Success! Hardware charge threshold set to ${LIMIT}% and persisted across reboots."

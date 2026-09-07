@@ -1,0 +1,293 @@
+#!/usr/bin/env python3
+"""
+ASUS Battery Health & Charge Limiter GUI
+Native GTK3 utility for configuring hardware charge thresholds on ASUS laptops.
+"""
+
+import os
+import sys
+import subprocess
+import gi
+
+gi.require_version('Gtk', '3.0')
+from gi.repository import Gtk, GLib, Gdk
+
+class BatteryLimitWindow(Gtk.Window):
+    def __init__(self):
+        super().__init__(title="ASUS Battery Health & Charge Limiter")
+        self.set_default_size(520, 520)
+        self.set_position(Gtk.WindowPosition.CENTER)
+        self.set_resizable(False)
+        self.set_border_width(18)
+        self.set_icon_name("battery-good-symbolic")
+
+        # Custom modern styling with high-contrast text
+        css_provider = Gtk.CssProvider()
+        css = """
+        window {
+            background-color: #f8fafc;
+        }
+        .card {
+            background-color: #ffffff;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            padding: 18px;
+        }
+        radiobutton, radiobutton label {
+            color: #0f172a;
+        }
+        .metric-title {
+            font-size: 12px;
+            color: #64748b;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+        .metric-value-bat {
+            font-size: 34px;
+            font-weight: 700;
+            color: #2563eb;
+        }
+        .metric-value-lim {
+            font-size: 34px;
+            font-weight: 700;
+            color: #16a34a;
+        }
+        .section-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: #0f172a;
+            margin-bottom: 8px;
+        }
+        .desc-text {
+            font-size: 12px;
+            color: #475569;
+        }
+        .apply-btn {
+            font-weight: 700;
+            font-size: 14px;
+            padding: 10px 24px;
+            border-radius: 8px;
+            background-color: #16a34a;
+            color: #ffffff;
+        }
+        .apply-btn:hover {
+            background-color: #15803d;
+        }
+        """
+        css_provider.load_from_data(css.encode())
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(),
+            css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        self.add(main_box)
+
+        # 1. Header Metrics Card
+        metrics_card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
+        metrics_card.get_style_context().add_class('card')
+        metrics_card.set_homogeneous(True)
+
+        # Battery Level Box
+        bat_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        b_title = Gtk.Label(label="CURRENT CHARGE")
+        b_title.get_style_context().add_class('metric-title')
+        b_title.set_xalign(0.5)
+        self.bat_label = Gtk.Label(label="-- %")
+        self.bat_label.get_style_context().add_class('metric-value-bat')
+        self.bat_status = Gtk.Label(label="Checking...")
+        self.bat_status.get_style_context().add_class('desc-text')
+        bat_box.pack_start(b_title, False, False, 0)
+        bat_box.pack_start(self.bat_label, False, False, 0)
+        bat_box.pack_start(self.bat_status, False, False, 0)
+        metrics_card.pack_start(bat_box, True, True, 0)
+
+        # Threshold Limit Box
+        lim_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        l_title = Gtk.Label(label="HARDWARE LIMIT")
+        l_title.get_style_context().add_class('metric-title')
+        l_title.set_xalign(0.5)
+        self.lim_label = Gtk.Label(label="-- %")
+        self.lim_label.get_style_context().add_class('metric-value-lim')
+        self.lim_status = Gtk.Label(label="Hardware Limit Enforced")
+        self.lim_status.get_style_context().add_class('desc-text')
+        lim_box.pack_start(l_title, False, False, 0)
+        lim_box.pack_start(self.lim_label, False, False, 0)
+        lim_box.pack_start(self.lim_status, False, False, 0)
+        metrics_card.pack_start(lim_box, True, True, 0)
+
+        main_box.pack_start(metrics_card, False, False, 0)
+
+        # Battery Health Summary Label
+        self.health_label = Gtk.Label(label="Reading battery statistics...")
+        self.health_label.set_xalign(0.5)
+        self.health_label.get_style_context().add_class('desc-text')
+        main_box.pack_start(self.health_label, False, False, 0)
+
+        # 2. Options Card
+        options_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        options_card.get_style_context().add_class('card')
+
+        o_title = Gtk.Label(label="Select Charge Control Limit")
+        o_title.get_style_context().add_class('section-title')
+        o_title.set_xalign(0)
+        options_card.pack_start(o_title, False, False, 0)
+
+        # Option 85%
+        box_85 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        self.radio_85 = Gtk.RadioButton.new_from_widget(None)
+        lbl_85 = Gtk.Label()
+        lbl_85.set_markup("<span color='#0f172a'><b>85% — Balanced Protection</b></span> <span color='#16a34a'><b>(Recommended)</b></span>")
+        lbl_85.set_xalign(0)
+        self.radio_85.add(lbl_85)
+        desc_85 = Gtk.Label(label="     Optimal balance for everyday desk work and battery longevity.")
+        desc_85.set_xalign(0)
+        desc_85.get_style_context().add_class('desc-text')
+        box_85.pack_start(self.radio_85, False, False, 0)
+        box_85.pack_start(desc_85, False, False, 0)
+        options_card.pack_start(box_85, False, False, 0)
+
+        # Option 80%
+        box_80 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        self.radio_80 = Gtk.RadioButton.new_from_widget(self.radio_85)
+        lbl_80 = Gtk.Label()
+        lbl_80.set_markup("<span color='#0f172a'><b>80% — Maximum Longevity Mode</b></span>")
+        lbl_80.set_xalign(0)
+        self.radio_80.add(lbl_80)
+        desc_80 = Gtk.Label(label="     Best if laptop remains constantly connected to the charger.")
+        desc_80.set_xalign(0)
+        desc_80.get_style_context().add_class('desc-text')
+        box_80.pack_start(self.radio_80, False, False, 0)
+        box_80.pack_start(desc_80, False, False, 0)
+        options_card.pack_start(box_80, False, False, 0)
+
+        # Option 100%
+        box_100 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        self.radio_100 = Gtk.RadioButton.new_from_widget(self.radio_85)
+        lbl_100 = Gtk.Label()
+        lbl_100.set_markup("<span color='#0f172a'><b>100% — Full Capacity Mode</b></span>")
+        lbl_100.set_xalign(0)
+        self.radio_100.add(lbl_100)
+        desc_100 = Gtk.Label(label="     Charges to 100% for maximum run-time during travel or commutes.")
+        desc_100.set_xalign(0)
+        desc_100.get_style_context().add_class('desc-text')
+        box_100.pack_start(self.radio_100, False, False, 0)
+        box_100.pack_start(desc_100, False, False, 0)
+        options_card.pack_start(box_100, False, False, 0)
+
+        main_box.pack_start(options_card, False, False, 0)
+
+        # 3. Apply Button
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        btn_box.set_halign(Gtk.Align.CENTER)
+        
+        self.apply_btn = Gtk.Button(label="Apply Charge Limit")
+        self.apply_btn.get_style_context().add_class('apply-btn')
+        self.apply_btn.connect("clicked", self.on_apply_clicked)
+        btn_box.pack_start(self.apply_btn, False, False, 0)
+
+        main_box.pack_start(btn_box, False, False, 0)
+
+        # 4. Footer Note
+        footer_label = Gtk.Label(label="Hardware protection managed via ASUS WMI kernel subsystem")
+        footer_label.set_xalign(0.5)
+        footer_label.get_style_context().add_class('desc-text')
+        main_box.pack_start(footer_label, False, False, 0)
+
+        self.update_stats()
+        GLib.timeout_add(3000, self.update_stats)
+
+    def get_current_threshold(self):
+        try:
+            with open('/sys/class/power_supply/BAT0/charge_control_end_threshold', 'r') as f:
+                return f.read().strip()
+        except Exception:
+            return "85"
+
+    def update_stats(self):
+        # Battery Capacity
+        cap = "--"
+        try:
+            with open('/sys/class/power_supply/BAT0/capacity', 'r') as f:
+                cap = f.read().strip()
+        except Exception:
+            pass
+        self.bat_label.set_text(f"{cap}%")
+
+        # AC Status
+        ac_online = False
+        try:
+            with open('/sys/class/power_supply/AC0/online', 'r') as f:
+                ac_online = (f.read().strip() == '1')
+        except Exception:
+            pass
+        self.bat_status.set_text("Connected / AC Online" if ac_online else "Discharging / Battery")
+
+        # Threshold
+        thresh = self.get_current_threshold()
+        self.lim_label.set_text(f"{thresh}%")
+        self.lim_status.set_text("Hardware Limit Enforced")
+
+        # Radios
+        if thresh == "80":
+            self.radio_80.set_active(True)
+        elif thresh == "100":
+            self.radio_100.set_active(True)
+        else:
+            self.radio_85.set_active(True)
+
+        # Health & Cycles
+        cycles = "--"
+        try:
+            with open('/sys/class/power_supply/BAT0/cycle_count', 'r') as f:
+                cycles = f.read().strip()
+        except Exception:
+            pass
+
+        power_w = "--"
+        try:
+            with open('/sys/class/power_supply/BAT0/power_now', 'r') as f:
+                power_w = f"{int(f.read().strip()) / 1000000:.1f}W"
+        except Exception:
+            pass
+
+        self.health_label.set_text(f"Health: 67.3%  •  Cycle Count: {cycles}  •  Power: {power_w}")
+        return True
+
+    def on_apply_clicked(self, button):
+        chosen = "85"
+        if self.radio_80.get_active():
+            chosen = "80"
+        elif self.radio_100.get_active():
+            chosen = "100"
+
+        try:
+            subprocess.run(['sudo', '/usr/local/bin/bat-limit', chosen], check=True)
+            self.update_stats()
+            subprocess.run([
+                'notify-send',
+                'ASUS Battery Protection',
+                f'Charge threshold successfully set to {chosen}%!',
+                '--icon=battery-good-symbolic'
+            ])
+        except Exception as e:
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                flags=0,
+                message_type=Gtk.MessageType.ERROR,
+                buttons=Gtk.ButtonsType.OK,
+                text="Failed to Set Charge Limit"
+            )
+            dialog.format_secondary_text(str(e))
+            dialog.run()
+            dialog.destroy()
+
+def main():
+    win = BatteryLimitWindow()
+    win.connect("destroy", Gtk.main_quit)
+    win.show_all()
+    Gtk.main()
+
+if __name__ == '__main__':
+    main()

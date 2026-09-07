@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=ASUS Battery Charge Limiter
+GenericName=Battery Care & Health
+Comment=Configure ASUS hardware battery charge threshold (80%, 85%, 100%)
+Exec=/usr/local/bin/bat-limit-gui
+Icon=battery-good-symbolic
+Terminal=false
+Type=Application
+Categories=Settings;HardwareSettings;
+Keywords=battery;charge;limit;threshold;asus;care;health;longevity;
+StartupNotify=true

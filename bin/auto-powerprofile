@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Auto-switch power profile on AC plug/unplug
+AC_ONLINE=$(cat /sys/class/power_supply/AC0/online 2>/dev/null)
+
+if [ "$AC_ONLINE" = "1" ]; then
+    /usr/bin/powerprofilesctl set performance 2>/dev/null || true
+elif [ "$AC_ONLINE" = "0" ]; then
+    /usr/bin/powerprofilesctl set balanced 2>/dev/null || true
+fi
