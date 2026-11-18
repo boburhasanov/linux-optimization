@@ -1,1 +1,2 @@
-SUBSYSTEM=="power_supply", KERNEL=="BAT0", ATTR{charge_control_end_threshold}="80"
+# Re-apply the saved charge limit whenever a battery appears (boot, re-plug, firmware reset).
+SUBSYSTEM=="power_supply", ACTION=="add", ATTR{type}=="Battery", RUN+="/usr/local/bin/asus-battery-apply"

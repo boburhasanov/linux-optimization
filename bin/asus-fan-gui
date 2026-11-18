@@ -23,6 +23,28 @@ def get_hwmon_path(name):
             pass
     return None
 
+def read(path, default=None):
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return default
+
+def ac_online():
+    for p in glob.glob('/sys/class/power_supply/*'):
+        if read(os.path.join(p, 'type')) == 'Mains' and read(os.path.join(p, 'online')) == '1':
+            return True
+    return False
+
+def battery_limit():
+    for p in sorted(glob.glob('/sys/class/power_supply/*/charge_control_end_threshold')):
+        return read(p)
+    return None
+
+# ACPI platform profile -> power-profiles-daemon name
+PLATFORM_TO_PPD = {'performance': 'performance', 'quiet': 'power-saver',
+                   'low-power': 'power-saver', 'cool': 'power-saver'}
+
 class FanControlWindow(Gtk.Window):
     def __init__(self):
         super().__init__(title="ASUS Thermal & Cooling Center")
@@ -38,36 +60,25 @@ class FanControlWindow(Gtk.Window):
         # Modern CSS styling
         css_provider = Gtk.CssProvider()
         css = """
-        window {
-            background-color: #f8fafc;
-        }
         .card {
-            background-color: #ffffff;
+            background-color: @theme_base_color;
             border-radius: 12px;
-            border: 1px solid #e2e8f0;
+            border: 1px solid alpha(@theme_fg_color, 0.12);
             padding: 16px;
-        }
-        radiobutton, radiobutton label {
-            color: #0f172a;
         }
         .metric-title {
             font-size: 12px;
-            color: #64748b;
             font-weight: 700;
             letter-spacing: 0.5px;
+            opacity: 0.65;
         }
-        .metric-value-temp {
-            font-size: 34px;
-            font-weight: 700;
-        }
-        .metric-value-fan {
+        .metric-value-temp, .metric-value-fan {
             font-size: 34px;
             font-weight: 700;
         }
         .section-title {
             font-size: 15px;
             font-weight: 700;
-            color: #0f172a;
             margin-bottom: 8px;
         }
         .status-badge {
@@ -78,7 +89,7 @@ class FanControlWindow(Gtk.Window):
         }
         .desc-text {
             font-size: 12px;
-            color: #475569;
+            opacity: 0.75;
         }
         """
         css_provider.load_from_data(css.encode())
@@ -146,7 +157,7 @@ class FanControlWindow(Gtk.Window):
         box_perf = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         self.radio_perf = Gtk.RadioButton.new_from_widget(None)
         lbl_perf = Gtk.Label()
-        lbl_perf.set_markup("<span color='#0f172a'><b>Performance (Maximum Cooling / Overboost)</b></span>")
+        lbl_perf.set_markup("<b>Performance (Maximum Cooling / Overboost)</b>")
         lbl_perf.set_xalign(0)
         self.radio_perf.add(lbl_perf)
         self.radio_perf.connect("toggled", self.on_profile_changed, "performance")
@@ -161,7 +172,7 @@ class FanControlWindow(Gtk.Window):
         box_bal = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         self.radio_bal = Gtk.RadioButton.new_from_widget(self.radio_perf)
         lbl_bal = Gtk.Label()
-        lbl_bal.set_markup("<span color='#0f172a'><b>Balanced (Standard Dynamic Cooling)</b></span>")
+        lbl_bal.set_markup("<b>Balanced (Standard Dynamic Cooling)</b>")
         lbl_bal.set_xalign(0)
         self.radio_bal.add(lbl_bal)
         self.radio_bal.connect("toggled", self.on_profile_changed, "balanced")
@@ -176,7 +187,7 @@ class FanControlWindow(Gtk.Window):
         box_quiet = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         self.radio_quiet = Gtk.RadioButton.new_from_widget(self.radio_perf)
         lbl_quiet = Gtk.Label()
-        lbl_quiet.set_markup("<span color='#0f172a'><b>Quiet / Silent (Whisper-Quiet Operation)</b></span>")
+        lbl_quiet.set_markup("<b>Quiet / Silent (Whisper-Quiet Operation)</b>")
         lbl_quiet.set_xalign(0)
         self.radio_quiet.add(lbl_quiet)
         self.radio_quiet.connect("toggled", self.on_profile_changed, "power-saver")
@@ -192,7 +203,7 @@ class FanControlWindow(Gtk.Window):
         # 3. Reference Table Expander
         expander = Gtk.Expander()
         exp_header = Gtk.Label()
-        exp_header.set_markup("<span color='#0f172a'><b>Thermal Curve Reference (Performance Mode)</b></span>")
+        exp_header.set_markup("<b>Thermal Curve Reference (Performance Mode)</b>")
         expander.set_label_widget(exp_header)
 
         exp_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -239,11 +250,15 @@ class FanControlWindow(Gtk.Window):
         GLib.timeout_add(1500, self.update_stats)
 
     def get_current_profile(self):
+        # Cheap sysfs read instead of spawning powerprofilesctl every refresh.
+        plat = read('/sys/firmware/acpi/platform_profile')
+        if plat is not None:
+            return PLATFORM_TO_PPD.get(plat, 'balanced')
         try:
             res = subprocess.run(['powerprofilesctl', 'get'], capture_output=True, text=True)
-            return res.stdout.strip()
-        except Exception:
-            return "balanced"
+            return res.stdout.strip() or 'balanced'
+        except OSError:
+            return 'balanced'
 
     def on_profile_changed(self, button, profile_name):
         if self.is_updating_ui or not button.get_active():
@@ -299,23 +314,15 @@ class FanControlWindow(Gtk.Window):
             self.radio_bal.set_active(True)
         self.is_updating_ui = False
 
-        # 4. AC Online & Battery limit
-        ac_online = False
-        try:
-            with open('/sys/class/power_supply/AC0/online', 'r') as f:
-                ac_online = (f.read().strip() == '1')
-        except Exception:
-            pass
-
-        limit_val = "85"
-        try:
-            with open('/sys/class/power_supply/BAT0/charge_control_end_threshold', 'r') as f:
-                limit_val = f.read().strip()
-        except Exception:
-            pass
-
-        power_text = "AC Connected (Charging)" if ac_online else "On Battery Power"
-        self.power_status_label.set_text(f"{power_text}  •  Battery Limit: {limit_val}%  •  Auto-Switch Active")
+        # 4. AC Online, battery limit, auto-switch rule
+        power_text = "AC Connected" if ac_online() else "On Battery Power"
+        limit_val = battery_limit()
+        parts = [power_text]
+        if limit_val:
+            parts.append(f"Battery Limit: {limit_val}%")
+        if os.path.exists('/etc/udev/rules.d/98-powerprofile-switch.rules'):
+            parts.append("Auto-Switch Active")
+        self.power_status_label.set_text("  •  ".join(parts))
 
         return True
 

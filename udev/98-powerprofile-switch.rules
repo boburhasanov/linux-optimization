@@ -1,3 +1,3 @@
-# Auto switch power profile on AC plug / unplug
-SUBSYSTEM=="power_supply", KERNEL=="AC0", ATTR{online}=="1", RUN+="/usr/local/bin/auto-powerprofile"
-SUBSYSTEM=="power_supply", KERNEL=="AC0", ATTR{online}=="0", RUN+="/usr/local/bin/auto-powerprofile"
+# Auto-switch power profile when the AC adapter is plugged in / unplugged.
+# Matches any mains adapter (AC0, ACAD, ADP1 ...), one rule for both directions.
+SUBSYSTEM=="power_supply", ACTION=="change", ATTR{type}=="Mains", RUN+="/usr/local/bin/auto-powerprofile"

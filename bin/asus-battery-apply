@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# asus-battery-apply — applies the saved charge limit to the hardware.
+# Run as root by systemd (boot + resume) and udev (battery add).
+# Single source of truth: /etc/asus-battery-limit.conf  (LIMIT=<40..100>)
+# ==============================================================================
+
+CONF="/etc/asus-battery-limit.conf"
+LIMIT=80
+
+if [ -r "$CONF" ]; then
+    SAVED=$(sed -n 's/^LIMIT=\([0-9]\{1,3\}\)$/\1/p' "$CONF" | tail -n1)
+    [ -n "$SAVED" ] && LIMIT="$SAVED"
+fi
+
+if [ "$LIMIT" -lt 40 ] || [ "$LIMIT" -gt 100 ]; then
+    LIMIT=80
+fi
+
+APPLIED=0
+for BAT in /sys/class/power_supply/*; do
+    if [ -w "$BAT/charge_control_end_threshold" ]; then
+        echo "$LIMIT" > "$BAT/charge_control_end_threshold" && APPLIED=1
+    fi
+done
+
+[ "$APPLIED" -eq 1 ] || exit 0

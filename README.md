@@ -5,7 +5,7 @@
 [![Python - 3.10+](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)](https://www.python.org)
 [![UI - GTK3 Native](https://img.shields.io/badge/GUI-GTK3%20Native-4A90E2?logo=gnome&logoColor=white)](https://www.gtk.org)
 [![License - MIT](https://img.shields.io/badge/License-MIT-22c55e.svg)](LICENSE)
-[![Zero Background Daemons](https://img.shields.io/badge/Resource%20Impact-0%25%20Idle%20CPU%20%7C%200%20MB%20RAM-emerald)](https://github.com/bobuhasanov/linux-optimization)
+[![Zero Background Daemons](https://img.shields.io/badge/Resource%20Impact-0%25%20Idle%20CPU%20%7C%200%20MB%20RAM-emerald)](https://github.com/boburhasanov/linux-optimization)
 
 A lightweight, production-grade optimization suite and graphical management center designed specifically for ASUS laptops running Linux (Linux Mint, Ubuntu, Debian, Cinnamon, GNOME). 
 
@@ -32,20 +32,27 @@ Engineered with a strict **Zero-Resource Background Policy**: no heavy polling d
 - **Visual Status Badges:** Dynamic color-coded indicators for hardware health and profile status.
 
 ### 2. 🔋 Battery Health & Charge Threshold (`bat-limit-gui` & `bat-limit`)
-- **Hardware Protection:** Configures ASUS hardware charge threshold (`charge_control_end_threshold`) to stop charging at **60%**, **80%**, or **100%**.
+- **Hardware Protection:** Configures ASUS hardware charge threshold (`charge_control_end_threshold`) to stop charging at **60%**, **80%** (default, recommended), or **100%** — or any value from 40–100 via the CLI.
+- **Real Battery Health:** Shows live health (full vs. design capacity), cycle count and power draw read straight from the kernel.
+- **Password Dialog, Not a Terminal:** The GUI applies changes through `pkexec` with its own polkit policy, so it works from the app menu.
 - **Prolonged Lifespan:** Protects lithium-ion battery chemistry against degradation when plugged in for long periods.
 - **Dual Interface:** Accessible via an intuitive desktop GUI or a fast CLI utility (`bat-limit`).
-- **Persistence Across Reboots & Sleep:** Backed by automated systemd units and udev rules so your selected threshold survives reboot, suspend, and hibernate states.
+- **Persistence Across Reboots & Sleep:** The chosen limit is stored in a single file, `/etc/asus-battery-limit.conf`, and re-applied by a systemd unit (boot + resume) and a udev rule (battery add) — it survives reboot, suspend and hibernate.
 
 ### 3. ⚡ Zero-Resource Event-Driven Power Switcher
 - Automatically shifts desktop power profiles between **Performance** and **Balanced** when the AC adapter is plugged in or unplugged.
-- Powered entirely by kernel **udev events** (`98-powerprofile-switch.rules`) — absolutely zero background daemons consuming CPU cycles.
+- Powered entirely by kernel **udev events** (`98-powerprofile-switch.rules`) — absolutely zero background daemons consuming CPU cycles. Works with any mains adapter name (`AC0`, `ACAD`, `ADP1` …).
 
 ### 4. 🚀 Storage I/O Responsiveness
-- Configures latency-optimized I/O schedulers (e.g. `bfq` / `mq-deadline`) for NVMe and SSD drives.
+- Picks the lowest-latency I/O scheduler per device: `none` for NVMe, `mq-deadline` for SATA SSD / eMMC, `bfq` for spinning HDDs.
 - Eliminates desktop micro-stutter during background file operations and heavy package upgrades.
 
-### 5. 🔬 Experimental: ASUS ELAN7001 Fingerprint Reader
+### 5. 🧠 zram Compressed Swap
+- Adds a zstd-compressed swap device in RAM (half of RAM, max 8 GB) via `systemd-zram-generator`, used before any disk swap.
+- Tuned `vm.swappiness` / `page-cluster` / watermark values (as used by Fedora, Pop!_OS and ChromeOS): fewer SSD writes and no stalls under memory pressure.
+- Optional — skip it with `sudo ./install.sh --no-zram`.
+
+### 6. 🔬 Experimental: ASUS ELAN7001 Fingerprint Reader
 - Complete hardware enablement guide, SPI udev rules, buffer configurations, and SIGFM patch for **ASUS ELAN SPI sensors** (`04f3:3104` / `ELAN7001` / `eFSA80SC`).
 - 📖 [Read the complete Fingerprint Guide & Patch Walkthrough](experimental/fingerprint/README.md)
 
@@ -68,10 +75,17 @@ linux-optimization/
 │   ├── asus-fan-gui        # Thermal monitoring and profile switcher (GTK3)
 │   ├── bat-limit-gui       # Battery threshold configuration GUI (GTK3)
 │   ├── bat-limit           # Battery threshold CLI tool (Bash)
+│   ├── asus-battery-apply  # Applies the saved limit (used by systemd/udev)
 │   └── auto-powerprofile   # Event-driven AC/Battery switcher
 ├── desktop/                # System application menu integrations (.desktop)
 │   ├── asus-fan-control.desktop
 │   └── bat-limit.desktop
+├── polkit/                 # Password-dialog policy for the battery GUI
+│   └── io.github.boburhasanov.bat-limit.policy
+├── zram/                   # Compressed RAM swap configuration
+│   └── zram-generator.conf
+├── sysctl/                 # Memory tuning for zram
+│   └── 99-zram-tuning.conf
 ├── systemd/                # Persistence unit files
 │   └── asus-battery-charge-threshold.service
 └── udev/                   # Kernel hardware event rules
@@ -88,7 +102,7 @@ Clone the repository and run the automated installer:
 
 ```bash
 # 1. Clone repository
-git clone git@github.com:bobuhasanov/linux-optimization.git
+git clone https://github.com/boburhasanov/linux-optimization.git
 cd linux-optimization
 
 # 2. Run installer with sudo
@@ -97,9 +111,11 @@ sudo ./install.sh
 
 The installer will automatically:
 1. Copy executable binaries to `/usr/local/bin/`
-2. Install `.desktop` entries into your application menu
-3. Enable the persistent systemd battery service
-4. Reload kernel `udev` hardware rules
+2. Save the default 80% charge limit to `/etc/asus-battery-limit.conf`
+3. Install the polkit policy and `.desktop` entries
+4. Enable the persistent systemd battery service
+5. Reload kernel `udev` hardware rules
+6. Set up zram compressed swap (unless `--no-zram`)
 
 ---
 
@@ -122,7 +138,7 @@ Query or change the battery charge limit directly:
 # Check current battery limit
 bat-limit
 
-# Set battery charge limit to 80%
+# Set battery charge limit to 80% (saved permanently)
 sudo bat-limit 80
 ```
 
@@ -130,7 +146,7 @@ sudo bat-limit 80
 
 ## 🧹 Uninstallation
 
-To completely remove all installed scripts, systemd units, and desktop shortcuts:
+To completely remove all installed scripts, systemd units, zram config and desktop shortcuts (charging is restored to 100%):
 
 ```bash
 sudo ./uninstall.sh
@@ -138,10 +154,19 @@ sudo ./uninstall.sh
 
 ---
 
+## ✅ Tested On
+
+| Laptop | OS | Kernel |
+| --- | --- | --- |
+| ASUS Vivobook 14 X1402ZA (Alder Lake) | Ubuntu 26.04 LTS (GNOME, Wayland) | 7.0 |
+| ASUS laptops | Linux Mint (Cinnamon) | — |
+
+---
+
 ## 👤 Author
 
 **Bobur Hasanov**
-- GitHub: [@bobuhasanov](https://github.com/bobuhasanov)
+- GitHub: [@boburhasanov](https://github.com/boburhasanov)
 
 ## 📄 License
 
